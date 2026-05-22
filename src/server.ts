@@ -25,6 +25,9 @@ const PRICE           = '$1.00';
 const NETWORK         = 'eip155:84532';
 const FACILITATOR_URL = 'https://x402.org/facilitator';
 
+// duplicated from verify.ts (locked); keep in sync if ExecutionLog redeploys.
+const EXECUTION_LOG_ADDRESS = '0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c';
+
 const TxHashSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 
 export function createServer(): Express {
@@ -32,7 +35,12 @@ export function createServer(): Express {
   app.use(express.json());
 
   app.get('/health', (_req, res) => {
-    res.status(200).json({ status: 'ok' });
+    res.status(200).json({
+      ok: true,
+      contract: EXECUTION_LOG_ADDRESS,
+      chain: 'base',
+      commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev',
+    });
   });
 
   const facilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });

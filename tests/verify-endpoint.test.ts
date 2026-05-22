@@ -27,10 +27,20 @@ afterAll(
 );
 
 describe('server endpoints', () => {
-  it('GET /health → 200 { status: "ok" }', async () => {
+  it('GET /health → 200 with deployment info', async () => {
     const r = await fetch(`${baseUrl}/health`);
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ status: 'ok' });
+    expect(await r.json()).toMatchObject({
+      ok: true,
+      contract: '0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c',
+      chain: 'base',
+    });
+  });
+
+  it('GET /health → commit is a 7-char sha or "dev"', async () => {
+    const r = await fetch(`${baseUrl}/health`);
+    const json = (await r.json()) as { commit: string };
+    expect(json.commit).toMatch(/^[0-9a-f]{7}$|^dev$/);
   });
 
   it('GET /api/verify/:txHash without X-PAYMENT → 402', async () => {

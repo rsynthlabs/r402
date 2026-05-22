@@ -56,12 +56,57 @@ pnpm test       # vitest run
 pnpm typecheck  # tsc --noEmit
 ```
 
+## deploy
+
+vercel serverless. node 20 runtime. one function: `api/index.ts` re-exports the express app.
+
+```
+pnpm install
+vercel --prod
+```
+
+env vars (set in vercel project settings):
+
+| var            | required | notes                                       |
+|----------------|----------|---------------------------------------------|
+| `BASE_RPC_URL` | yes      | base MAINNET rpc (chain 8453). not sepolia. |
+
+public url: `https://r402.rsynth.ai`.
+
+## buyer flow
+
+```
+# gate
+$ curl -i https://r402.rsynth.ai/api/verify/0xabc...
+HTTP/2 402
+content-type: application/json
+
+{ "x402Version": 1, "accepts": [...], "error": "X-PAYMENT header is required" }
+
+# pay
+$ curl -i -H "X-PAYMENT: <signed-permit>" https://r402.rsynth.ai/api/verify/0xabc...
+HTTP/2 200
+
+{
+  "verified": true,
+  "agent_id": "10311",
+  "payload_hash": "0xf4956c...",
+  "signer": "0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe",
+  "anchor_tx": "0x713cf78...",
+  "block": 46166628
+}
+```
+
+`@x402/client` is the canonical buyer.
+
 ## health
 
 ```
-curl http://localhost:3000/health
-# { "status": "ok" }
+curl https://r402.rsynth.ai/health
+# { "ok": true, "contract": "0xd5A9...", "chain": "base", "commit": "<sha7>" }
 ```
+
+sanity-check after a deploy without burning usdc. `commit` is the 7-char `VERCEL_GIT_COMMIT_SHA` or `"dev"` locally.
 
 ## license
 
