@@ -43,6 +43,12 @@ describe('server endpoints', () => {
     expect(json.commit).toMatch(/^[0-9a-f]{7}$|^dev$/);
   });
 
+  it('GET / → 302 redirect to GitHub repo', async () => {
+    const r = await fetch(`${baseUrl}/`, { redirect: 'manual' });
+    expect(r.status).toBe(302);
+    expect(r.headers.get('location')).toBe('https://github.com/rsynthlabs/r402');
+  });
+
   it('GET /api/verify/:txHash without X-PAYMENT → 402', async () => {
     const txHash = `0x${'a'.repeat(64)}`;
     const r = await fetch(`${baseUrl}/api/verify/${txHash}`);

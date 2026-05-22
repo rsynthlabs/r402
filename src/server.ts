@@ -43,6 +43,10 @@ export function createServer(): Express {
     });
   });
 
+  app.get('/', (_req, res) => {
+    res.redirect(302, 'https://github.com/rsynthlabs/r402');
+  });
+
   const facilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
   const resourceServer = new x402ResourceServer(facilitator).register(
     NETWORK,
