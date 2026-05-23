@@ -19,6 +19,12 @@ import { payloadHash } from '../src/canonical.js';
 import { PayloadSchema, type Payload } from '../src/schema.js';
 
 const CHAIN_ID = 8453;
+// TODO: read these from accept.extra on each 402 response instead of
+// hardcoding here. the server pins them in its accepts config and they
+// flow through to the buyer in the payment-required envelope's
+// accepts[].extra — sourcing from there would survive a future domain
+// rotation (e.g. usdc v3) without a buyer redeploy. left hardcoded for
+// now so the buyer stays simple and matches what the server pins.
 const USDC_DOMAIN_NAME    = 'USD Coin';
 const USDC_DOMAIN_VERSION = '2';
 

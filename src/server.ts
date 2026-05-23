@@ -39,6 +39,14 @@ const PRICE           = { asset: USDC_BASE, amount: '1000000' }; // $1.00 USDC
 const NETWORK_ID      = 'eip155:8453';
 const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.openx402.ai';
 
+// USDC EIP-712 domain pin. base mainnet USDC.name() returns "USD Coin"
+// (the sepolia contract returns "USDC" — different contract, different
+// domain). when PRICE is the AssetAmount shape, @x402/express does not
+// auto-fill these, so an empty `extra` leaves the facilitator to guess —
+// any default mismatching this domain makes ECDSA recover a different
+// address and the proof gets rejected after settlement.
+const USDC_EIP712 = { name: 'USD Coin', version: '2' };
+
 // duplicated from verify.ts (locked); keep in sync if ExecutionLog redeploys.
 const EXECUTION_LOG_ADDRESS = '0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c';
 
@@ -87,19 +95,21 @@ export function createServer(opts: ServerOptions = {}): Express {
       {
         'GET /api/verify/:txHash': {
           accepts: {
-            scheme: 'exact',
-            price: PRICE,
+            scheme:  'exact',
+            price:   PRICE,
             network: NETWORK_ID,
-            payTo: PAY_TO,
+            payTo:   PAY_TO,
+            extra:   USDC_EIP712,
           },
           description: 'verify a $R execution proof anchored on Base',
         },
         'POST /api/anchor': {
           accepts: {
-            scheme: 'exact',
-            price: PRICE,
+            scheme:  'exact',
+            price:   PRICE,
             network: NETWORK_ID,
-            payTo: PAY_TO,
+            payTo:   PAY_TO,
+            extra:   USDC_EIP712,
           },
           description: 'anchor a signed $R execution proof to Base via r402 relayer',
         },
