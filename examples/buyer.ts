@@ -205,9 +205,13 @@ async function callWithX402<T>(
   };
   const xPayment = Buffer.from(JSON.stringify(envelope), 'utf-8').toString('base64');
 
+  // @x402/core extractPayment honors only "payment-signature" (and its
+  // uppercase variant) — the v1 legacy "x-payment" header is dead code in
+  // node_modules/@x402/express but never reaches the decode path. see
+  // x402HTTPResourceServer.extractPayment in @x402/core/dist/cjs/server.
   const retry = await fetch(url, {
     ...baseInit,
-    headers: { ...baseHeaders, 'x-payment': xPayment },
+    headers: { ...baseHeaders, 'payment-signature': xPayment },
   });
   if (retry.status === 402) {
     throw new X402Rejected(decodeRequired(retry.headers.get('payment-required')));
