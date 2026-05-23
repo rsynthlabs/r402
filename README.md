@@ -1,38 +1,48 @@
 # r402
 
-verifier-as-service for `$R` execution proofs. pay a few cents in USDC over x402, get back the on-chain signer of a robot execution anchored on base.
+verifier + permissionless relayer for `$R` execution proofs. pay a few cents in USDC over x402, get back the on-chain signer of a robot execution — or anchor a signed payload yourself without holding any ETH.
 
-- v0.1 — W1 scaffolding shipped
+- v0.1 — W3 verifier + relayer shipped
 - license: MIT
-- verifies records emitted by [ExecutionLog](https://basescan.org/address/0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c) on base mainnet
+- reads + writes [ExecutionLog](https://basescan.org/address/0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c) on base mainnet
 
 ## why
 
-buyers of robot execution data need a one-line check before paying. r402 wraps the [rsynth](https://github.com/rsynthlabs/sdk) verify flow behind an http endpoint and meters access with x402 — no custom signing, no rpc credentials, just a tx hash.
+two sides of the same proof:
+
+- **buyers** need a one-line check before paying for an execution. `GET /api/verify/:txHash` returns the canonical signer + payload hash.
+- **producers** need to anchor a signed payload to base mainnet without holding ETH. `POST /api/anchor` forwards `{payload, signature}` to a gas-abstracted relayer (1Shot) that calls `ExecutionLog.record()` from its own escrow wallet.
+
+both endpoints are gated by x402 (USDC, sepolia paywall, $1.00). the agent pays nothing in gas. r402 stays stateless — no payload storage, no key custody.
 
 ## architecture
 
 ```
-buyer agent (MM smart account + ERC-7710 delegation)
-  │  GET /api/verify/:txHash
-  ▼
-x402 paymentMiddleware (USDC, MM facilitator)
-  ▼
-r402:
-  → read ExecutionRecorded(signer, payloadHash) on base
-  → fetch off-chain payload (agent-provided URL)
-  → keccak256(canonical_bytes(payload)) == payloadHash
-  → recover EIP-191 signer, == on-chain signer
-  ▼
-{ verified, agent_id, payload_hash, signer, block, tx_hash }
+verify path:
+  buyer ──GET /api/verify/:txHash──▶ r402 ──▶ base mainnet (ExecutionLog log)
+                                      │
+                                      └──▶ { signer, payloadHash, signature,
+                                             txHash, blockNumber }
+
+anchor path:
+  producer ──POST /api/anchor──▶ r402 ──▶ 1Shot relayer ──▶ ExecutionLog.record()
+            { payload, signature }   │                        on base mainnet
+                                     ├──▶ canonicalize + EIP-191 recover
+                                     └──▶ base RPC: confirm tx receipt
+                                                                 │
+                                                                 ▼
+                                  { signer, payloadHash, signature,
+                                    txHash, blockNumber, anchorUrl }
 ```
+
+dual-plane: x402 settlement on sepolia (cheap, schema-canonical facilitator), ExecutionLog read/write on base mainnet. mainnet x402 facilitator switch is W4 — see header block of `src/server.ts`.
 
 ## roadmap
 
-- **W1** (this commit) — scaffold, `/health`, `canonical.ts` byte-equivalent with [sdk](https://github.com/rsynthlabs/sdk)
-- **W2** — `/api/verify/:txHash`, x402 `paymentMiddleware` on `@x402/express`, MM facilitator
-- **W3** — buyer-side demo with `@metamask/smart-accounts-kit` and ERC-7710 sub-agent budget
-- **W4** — public deploy, demo video, submission
+- **W1** — scaffold, `/health`, `canonical.ts` byte-equivalent with [sdk](https://github.com/rsynthlabs/sdk)
+- **W2** — `/api/verify/:txHash`, x402 `paymentMiddleware` on `@x402/express`, sepolia facilitator
+- **W3** (this commit) — vercel serverless deploy, `POST /api/anchor` via 1Shot permissionless relayer
+- **W4** — buyer-side demo with `@metamask/smart-accounts-kit` and ERC-7710 sub-agent budget, mainnet x402 facilitator, submission
 
 ## relation to sdk
 
@@ -67,19 +77,28 @@ vercel --prod
 
 env vars (set in vercel project settings):
 
-| var            | required | notes                                       |
-|----------------|----------|---------------------------------------------|
-| `BASE_RPC_URL` | yes      | base MAINNET rpc (chain 8453). not sepolia. |
+| var                 | required          | notes                                                       |
+|---------------------|-------------------|-------------------------------------------------------------|
+| `BASE_RPC_URL`      | yes               | base MAINNET rpc (chain 8453). not sepolia.                 |
+| `ONESHOT_API_KEY`   | for `/api/anchor` | from app.1shotapi.com.                                      |
+| `ONESHOT_METHOD_URL`| for `/api/anchor` | method binding for `ExecutionLog.record(bytes32,bytes)`.    |
+| `ONESHOT_TIMEOUT_MS`| no                | per-request poll deadline. default 30000.                   |
 
 public url: `https://r402.rsynth.ai`.
 
-## buyer flow
+### 1Shot dashboard prereqs (one-time, before `/api/anchor` works)
+
+1. import `ExecutionLog` ABI in the 1Shot Smart Contracts UI. chain `8453`. address `0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c`.
+2. create a method binding for `record(bytes32 payloadHash, bytes signature)`. copy the method URL.
+3. fund the 1Shot escrow wallet with base mainnet ETH. ~0.001 ETH ≈ 30 record() calls at current gas.
+4. set `ONESHOT_API_KEY` + `ONESHOT_METHOD_URL` in vercel env. redeploy.
+
+## verify flow (buyer)
 
 ```
 # gate
 $ curl -i https://r402.rsynth.ai/api/verify/0xabc...
 HTTP/2 402
-content-type: application/json
 
 { "x402Version": 1, "accepts": [...], "error": "X-PAYMENT header is required" }
 
@@ -88,14 +107,37 @@ $ curl -i -H "X-PAYMENT: <signed-permit>" https://r402.rsynth.ai/api/verify/0xab
 HTTP/2 200
 
 {
-  "verified": true,
-  "agent_id": "10311",
-  "payload_hash": "0xf4956c...",
-  "signer": "0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe",
-  "anchor_tx": "0x713cf78...",
-  "block": 46166628
+  "signer":      "0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe",
+  "payloadHash": "0x26444c4ba73c1f692533ddcf1827e56f5cefe27cbbd169c87ff11c443e99aa8d",
+  "signature":   "0x...",
+  "timestamp":   "1747250551",
+  "blockNumber": "46166628",
+  "txHash":      "0x713cf78..."
 }
 ```
+
+## anchor flow (producer)
+
+agent pays $1.00 in USDC over x402. agent pays nothing in ETH. r402 forwards `{payload, signature}` to 1Shot, which calls `ExecutionLog.record()` from its escrow wallet, then r402 re-confirms the receipt on base mainnet before returning.
+
+```
+$ curl -i -X POST -H "X-PAYMENT: <signed-permit>" \
+       -H "content-type: application/json" \
+       -d '{"payload": {<v0.1.0 payload>}, "signature": "0x..."}' \
+       https://r402.rsynth.ai/api/anchor
+HTTP/2 200
+
+{
+  "signer":      "0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe",
+  "payloadHash": "0x26444c4b...",
+  "signature":   "0x...",
+  "txHash":      "0x713cf78...",
+  "blockNumber": "46166628",
+  "anchorUrl":   "https://basescan.org/tx/0x713cf78..."
+}
+```
+
+errors: `400 bad_body | bad_payload | bad_signature`, `402` paywall, `502 anchor_failed | anchor_reverted`, `504 anchor_timeout`.
 
 `@x402/client` is the canonical buyer.
 
