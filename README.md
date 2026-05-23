@@ -146,7 +146,15 @@ HTTP/2 200
 
 errors: `400 bad_body | bad_payload | bad_signature`, `402` paywall, `502 anchor_failed | anchor_reverted`, `504 anchor_timeout`.
 
-`@x402/client` is the canonical buyer.
+## try it
+
+`examples/buyer.ts` is a runnable end-to-end roundtrip against the live deployment: pays real USDC on base mainnet, anchors a signed payload, verifies it back. ~$2 USDC total per run.
+
+```
+npx tsx --env-file=.env examples/buyer.ts
+```
+
+see [`examples/README.md`](./examples/README.md) for env setup, funding, expected output, and exit codes.
 
 ## health
 
