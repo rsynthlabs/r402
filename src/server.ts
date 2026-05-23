@@ -21,25 +21,23 @@ import {
   type AnchorResult,
 } from './relayer.js';
 
-// Facilitator: x402.org canonical default (Sepolia testnet) — verified schema-compliant against @x402/core v2.12.0.
+// x402 paywall: base mainnet via OpenX402 facilitator
+// (https://facilitator.openx402.ai). permissionless, no KYC, no API keys,
+// no fees; listed on x402scan.com, open source at github.com/openx402/openx402.
 //
-// Why Sepolia for v0.1:
-// - Public Base mainnet x402 in 2026-Q2 = either Coinbase CDP (credential-dependency, KYT/OFAC) or self-hosted.
-// - Probed third-party "Base mainnet" facilitators 2026-05-21:
-//     AutoIncentive — DNS failure (infra dead)
-//     0xArchive     — domain parked on GoDaddy (infra dead)
-//     fretchen.eu   — 200 OK but /supported.extensions schema drift, fails @x402/core v2.12.0 zod parse
-// - Sepolia + canonical facilitator = schema-guaranteed, free, zero credential surface, full x402 flow.
+// real USDC settles to PAY_TO on base mainnet — production, not testnet.
+// ExecutionLog.record() also writes to base mainnet via the hot-wallet
+// relayer in src/relayer.ts; single network end-to-end.
 //
-// MAINNET UPGRADE PATH (W4 or post-Cook-Off):
-//   1. NETWORK → 'eip155:8453'
-//   2. FACILITATOR_URL → @coinbase/x402 authenticated facilitator with CDP creds, OR self-hosted facilitator
-//   3. Add CDP_API_KEY_ID + CDP_API_KEY_SECRET env (CDP path) OR deploy self-host (self-host path)
-//   4. No other code change — verify.ts already targets mainnet, this only flips payment rail.
+// override the facilitator with FACILITATOR_URL env for self-hosted or
+// alternative permissionless deployments. PRICE is pinned to base mainnet
+// USDC (atomic units; 1_000_000 = 1.00) so a facilitator swap can't
+// silently re-asset the route.
 const PAY_TO          = '0x132fA3855Dda4b2c085FCf3d79E9c3F15f78F15F';
-const PRICE           = '$1.00';
-const NETWORK         = 'eip155:84532';
-const FACILITATOR_URL = 'https://x402.org/facilitator';
+const USDC_BASE       = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const PRICE           = { asset: USDC_BASE, amount: '1000000' }; // $1.00 USDC
+const NETWORK_ID      = 'eip155:8453';
+const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.openx402.ai';
 
 // duplicated from verify.ts (locked); keep in sync if ExecutionLog redeploys.
 const EXECUTION_LOG_ADDRESS = '0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c';
@@ -80,7 +78,7 @@ export function createServer(opts: ServerOptions = {}): Express {
 
   const facilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
   const resourceServer = new x402ResourceServer(facilitator).register(
-    NETWORK,
+    NETWORK_ID,
     new ExactEvmScheme(),
   );
 
@@ -91,7 +89,7 @@ export function createServer(opts: ServerOptions = {}): Express {
           accepts: {
             scheme: 'exact',
             price: PRICE,
-            network: NETWORK,
+            network: NETWORK_ID,
             payTo: PAY_TO,
           },
           description: 'verify a $R execution proof anchored on Base',
@@ -100,10 +98,10 @@ export function createServer(opts: ServerOptions = {}): Express {
           accepts: {
             scheme: 'exact',
             price: PRICE,
-            network: NETWORK,
+            network: NETWORK_ID,
             payTo: PAY_TO,
           },
-          description: 'anchor a signed $R execution proof to Base via 1Shot',
+          description: 'anchor a signed $R execution proof to Base via r402 relayer',
         },
       },
       resourceServer,

@@ -13,7 +13,9 @@ two sides of the same proof:
 - **buyers** need a one-line check before paying for an execution. `GET /api/verify/:txHash` returns the canonical signer + payload hash.
 - **producers** need to anchor a signed payload to base mainnet without holding ETH. `POST /api/anchor` forwards `{payload, signature}` to an r402-hosted relayer wallet that calls `ExecutionLog.record()` on the producer's behalf. on-chain `ECDSA.recover` extracts the producer's signer from the signature payload, so `tx.origin` (this wallet) is irrelevant to attribution.
 
-both endpoints are gated by x402 (USDC, sepolia paywall, $1.00). the agent pays nothing in gas. r402 stays stateless — no payload storage, no key custody.
+both endpoints are gated by x402 (USDC, base mainnet, $1.00) via [OpenX402](https://facilitator.openx402.ai). the agent pays nothing in gas. r402 stays stateless — no payload storage, no key custody.
+
+we use OpenX402 as our facilitator — permissionless, free, no KYC, listed on [x402scan](https://www.x402scan.com). this makes r402 a pure production demo with real USDC settlement on base mainnet, not testnet.
 
 ## architecture
 
@@ -35,14 +37,18 @@ anchor path:
                                     txHash, blockNumber, anchorUrl }
 ```
 
-dual-plane: x402 settlement on sepolia (cheap, schema-canonical facilitator), ExecutionLog read/write on base mainnet. mainnet x402 facilitator switch is W4 — see header block of `src/server.ts`.
+single plane, single chain — base mainnet (chain 8453) end to end:
+  - x402 settlement: USDC on base mainnet, via OpenX402 facilitator
+  - ExecutionLog anchor: base mainnet, via self-hosted relayer wallet
+both planes use the same `BASE_RPC_URL`. PRICE is pinned to USDC on base mainnet (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`, atomic units: `1_000_000` = $1.00) so a facilitator swap can't silently re-asset the route.
 
 ## roadmap
 
 - **W1** — scaffold, `/health`, `canonical.ts` byte-equivalent with [sdk](https://github.com/rsynthlabs/sdk)
-- **W2** — `/api/verify/:txHash`, x402 `paymentMiddleware` on `@x402/express`, sepolia facilitator
-- **W3** (this commit) — vercel serverless deploy, `POST /api/anchor` via self-hosted hot-wallet relayer (viem `writeContract`)
-- **W4** — buyer-side demo with `@metamask/smart-accounts-kit` and ERC-7710 sub-agent budget, mainnet x402 facilitator, submission
+- **W2** — `/api/verify/:txHash`, x402 `paymentMiddleware` on `@x402/express`
+- **W3** — vercel serverless deploy, `POST /api/anchor` via self-hosted hot-wallet relayer (viem `writeContract`)
+- **W3.5** (this commit) — base mainnet paywall via OpenX402 facilitator; testnet plane retired
+- **W4** — buyer-side demo with `@metamask/smart-accounts-kit` and ERC-7710 sub-agent budget, submission
 
 ## relation to sdk
 
@@ -79,9 +85,10 @@ env vars (set in vercel project settings):
 
 | var                   | required          | notes                                                                  |
 |-----------------------|-------------------|------------------------------------------------------------------------|
-| `BASE_RPC_URL`        | yes               | base MAINNET rpc (chain 8453). not sepolia.                            |
+| `BASE_RPC_URL`        | yes               | base MAINNET rpc (chain 8453). single chain end-to-end, no sepolia.    |
 | `RELAYER_PRIVATE_KEY` | for `/api/anchor` | hot wallet that signs `ExecutionLog.record()` txs. fund with base ETH. |
 | `RELAYER_TIMEOUT_MS`  | no                | per-request `writeContract` deadline. default 30000.                   |
+| `FACILITATOR_URL`     | no                | x402 facilitator override. default OpenX402.                           |
 
 public url: `https://r402.rsynth.ai`.
 
