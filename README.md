@@ -11,7 +11,7 @@ verifier + permissionless relayer for `$R` execution proofs. pay a few cents in 
 two sides of the same proof:
 
 - **buyers** need a one-line check before paying for an execution. `GET /api/verify/:txHash` returns the canonical signer + payload hash.
-- **producers** need to anchor a signed payload to base mainnet without holding ETH. `POST /api/anchor` forwards `{payload, signature}` to a gas-abstracted relayer (1Shot) that calls `ExecutionLog.record()` from its own escrow wallet.
+- **producers** need to anchor a signed payload to base mainnet without holding ETH. `POST /api/anchor` forwards `{payload, signature}` to an r402-hosted relayer wallet that calls `ExecutionLog.record()` on the producer's behalf. on-chain `ECDSA.recover` extracts the producer's signer from the signature payload, so `tx.origin` (this wallet) is irrelevant to attribution.
 
 both endpoints are gated by x402 (USDC, sepolia paywall, $1.00). the agent pays nothing in gas. r402 stays stateless — no payload storage, no key custody.
 
@@ -25,7 +25,7 @@ verify path:
                                              txHash, blockNumber }
 
 anchor path:
-  producer ──POST /api/anchor──▶ r402 ──▶ 1Shot relayer ──▶ ExecutionLog.record()
+  producer ──POST /api/anchor──▶ r402 ──▶ relayer wallet ──▶ ExecutionLog.record()
             { payload, signature }   │                        on base mainnet
                                      ├──▶ canonicalize + EIP-191 recover
                                      └──▶ base RPC: confirm tx receipt
@@ -41,7 +41,7 @@ dual-plane: x402 settlement on sepolia (cheap, schema-canonical facilitator), Ex
 
 - **W1** — scaffold, `/health`, `canonical.ts` byte-equivalent with [sdk](https://github.com/rsynthlabs/sdk)
 - **W2** — `/api/verify/:txHash`, x402 `paymentMiddleware` on `@x402/express`, sepolia facilitator
-- **W3** (this commit) — vercel serverless deploy, `POST /api/anchor` via 1Shot permissionless relayer
+- **W3** (this commit) — vercel serverless deploy, `POST /api/anchor` via self-hosted hot-wallet relayer (viem `writeContract`)
 - **W4** — buyer-side demo with `@metamask/smart-accounts-kit` and ERC-7710 sub-agent budget, mainnet x402 facilitator, submission
 
 ## relation to sdk
@@ -77,21 +77,21 @@ vercel --prod
 
 env vars (set in vercel project settings):
 
-| var                 | required          | notes                                                       |
-|---------------------|-------------------|-------------------------------------------------------------|
-| `BASE_RPC_URL`      | yes               | base MAINNET rpc (chain 8453). not sepolia.                 |
-| `ONESHOT_API_KEY`   | for `/api/anchor` | from app.1shotapi.com.                                      |
-| `ONESHOT_METHOD_URL`| for `/api/anchor` | method binding for `ExecutionLog.record(bytes32,bytes)`.    |
-| `ONESHOT_TIMEOUT_MS`| no                | per-request poll deadline. default 30000.                   |
+| var                   | required          | notes                                                                  |
+|-----------------------|-------------------|------------------------------------------------------------------------|
+| `BASE_RPC_URL`        | yes               | base MAINNET rpc (chain 8453). not sepolia.                            |
+| `RELAYER_PRIVATE_KEY` | for `/api/anchor` | hot wallet that signs `ExecutionLog.record()` txs. fund with base ETH. |
+| `RELAYER_TIMEOUT_MS`  | no                | per-request `writeContract` deadline. default 30000.                   |
 
 public url: `https://r402.rsynth.ai`.
 
-### 1Shot dashboard prereqs (one-time, before `/api/anchor` works)
+### relayer setup (one-time, before `/api/anchor` works)
 
-1. import `ExecutionLog` ABI in the 1Shot Smart Contracts UI. chain `8453`. address `0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c`.
-2. create a method binding for `record(bytes32 payloadHash, bytes signature)`. copy the method URL.
-3. fund the 1Shot escrow wallet with base mainnet ETH. ~0.001 ETH ≈ 30 record() calls at current gas.
-4. set `ONESHOT_API_KEY` + `ONESHOT_METHOD_URL` in vercel env. redeploy.
+1. generate a hot wallet: `cast wallet new --json` (or any 32-byte hex private key).
+2. fund the wallet with ~0.002 ETH on base mainnet (~60 anchors at current gas).
+3. set `RELAYER_PRIVATE_KEY` in vercel env. redeploy.
+
+the wallet only spends gas — on-chain `ECDSA.recover` extracts the producer's signer from the signature payload, so this wallet has no claim over recorded executions.
 
 ## verify flow (buyer)
 
@@ -118,7 +118,7 @@ HTTP/2 200
 
 ## anchor flow (producer)
 
-agent pays $1.00 in USDC over x402. agent pays nothing in ETH. r402 forwards `{payload, signature}` to 1Shot, which calls `ExecutionLog.record()` from its escrow wallet, then r402 re-confirms the receipt on base mainnet before returning.
+agent pays $1.00 in USDC over x402. agent pays nothing in ETH. r402's relayer wallet calls `ExecutionLog.record(payloadHash, signature)` on base mainnet, then re-confirms the receipt before returning.
 
 ```
 $ curl -i -X POST -H "X-PAYMENT: <signed-permit>" \

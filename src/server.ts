@@ -14,8 +14,9 @@ import { verifyAnchor } from './verify.js';
 import { payloadHash } from './canonical.js';
 import { PayloadSchema } from './schema.js';
 import {
-  anchorViaOneShot,
-  OneShotTimeout,
+  anchorViaHotWallet,
+  RelayerReverted,
+  RelayerTimeout,
   type AnchorParams,
   type AnchorResult,
 } from './relayer.js';
@@ -59,7 +60,7 @@ export interface ServerOptions {
 }
 
 export function createServer(opts: ServerOptions = {}): Express {
-  const anchor: AnchorFn = opts.anchor ?? anchorViaOneShot;
+  const anchor: AnchorFn = opts.anchor ?? anchorViaHotWallet;
 
   const app = express();
   app.use(express.json());
@@ -199,11 +200,8 @@ async function anchorHandler(
   try {
     anchored = await anchor({ payloadHash: hash, signature });
   } catch (err) {
-    const status = mapAnchorError(err);
-    res.status(status).json({
-      error: status === 504 ? 'anchor_timeout' : 'anchor_failed',
-      detail: errMsg(err),
-    });
+    const { status, code } = anchorErrorResponse(err);
+    res.status(status).json({ error: code, detail: errMsg(err) });
     return;
   }
 
@@ -227,9 +225,10 @@ async function anchorHandler(
   }
 }
 
-function mapAnchorError(err: unknown): number {
-  if (err instanceof OneShotTimeout) return 504;
-  return 502;
+function anchorErrorResponse(err: unknown): { status: number; code: string } {
+  if (err instanceof RelayerTimeout)  return { status: 504, code: 'anchor_timeout'  };
+  if (err instanceof RelayerReverted) return { status: 502, code: 'anchor_reverted' };
+  return { status: 502, code: 'anchor_failed' };
 }
 
 function errMsg(e: unknown): string {
