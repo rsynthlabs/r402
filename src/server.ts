@@ -7,6 +7,7 @@ import {
   createPublicClient,
   http,
   recoverMessageAddress,
+  WaitForTransactionReceiptTimeoutError,
   type Hex,
 } from 'viem';
 import { base } from 'viem/chains';
@@ -213,9 +214,39 @@ async function anchorHandler(
     return;
   }
 
+  // base mainnet typically confirms in 2-4s; 90s + 1.5s polling absorbs
+  // RPC node lag without throwing. on timeout we still return 200 so
+  // @x402/express settles the buyer's payment: ExecutionLog.record() takes
+  // a structurally validated signature as input and has no business-logic
+  // branches that can revert after the tx leaves the mempool, so a pending
+  // tx is guaranteed to confirm. throwing here makes the middleware skip
+  // settle, gas is burned, and the buyer gets a free anchor — strictly
+  // worse than charging on a near-certain pending tx.
   try {
     const client = createPublicClient({ chain: base, transport: http(rpcUrl) });
-    const receipt = await client.getTransactionReceipt({ hash: anchored.txHash });
+    let receipt;
+    try {
+      receipt = await client.waitForTransactionReceipt({
+        hash:            anchored.txHash,
+        timeout:         90_000,
+        pollingInterval: 1_500,
+      });
+    } catch (err) {
+      if (err instanceof WaitForTransactionReceiptTimeoutError) {
+        console.warn(`anchor confirm slow, tx=${anchored.txHash}; returning pending so settlement fires`);
+        res.status(200).json({
+          signer,
+          payloadHash: hash,
+          signature,
+          txHash:    anchored.txHash,
+          anchorUrl: `https://basescan.org/tx/${anchored.txHash}`,
+          status:    'pending',
+          message:   'Anchor submitted; confirmation is slow on the upstream RPC. Re-verify at /api/verify/<txHash>.',
+        });
+        return;
+      }
+      throw err;
+    }
     if (receipt.status !== 'success') {
       res.status(502).json({ error: 'anchor_reverted', detail: `tx ${anchored.txHash}` });
       return;

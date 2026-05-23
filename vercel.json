@@ -3,5 +3,10 @@
   "outputDirectory": ".",
   "rewrites": [
     { "source": "/(.*)", "destination": "/api" }
-  ]
+  ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 120
+    }
+  }
 }
