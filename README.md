@@ -78,6 +78,26 @@ r402 buyer roundtrip — base mainnet
   paid. signed. proven.
 ```
 
+## organic adoption
+
+48h since public ship, zero marketing:
+
+| metric | count |
+|---|---|
+| anchors on base mainnet | 8 |
+| external signers | 3 |
+| paid usdc revenue | ~$9 |
+| signups, invites, drops | 0 |
+
+receipts:
+
+- payTo: [`0x132fA3...78F15F`](https://basescan.org/address/0x132fA3855Dda4b2c085FCf3d79E9c3F15f78F15F)
+- relayer: [`0x0d9242c7...4fd`](https://basescan.org/address/0x0d9242c7Da4a47E815023905e2a82B354fbCE4fd)
+- ExecutionLog: [`0xd5A9DAF8...1a1c`](https://basescan.org/address/0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c)
+
+three strangers paid $1 USDC each within 48h of public endpoint going live.
+no founder ping, no airdrop, no waitlist. the endpoint speaks, somebody pays.
+
 ## integration
 
 ```
