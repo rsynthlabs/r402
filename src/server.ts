@@ -70,6 +70,7 @@ export function createServer(opts: ServerOptions = {}): Express {
   const anchor: AnchorFn = opts.anchor ?? anchorViaHotWallet;
 
   const app = express();
+  app.set('trust proxy', true);
   app.use(express.json());
 
   app.get('/health', (_req, res) => {
