@@ -111,6 +111,45 @@ EIP-3009 typed-data signing is hand-rolled there until `x402-fetch` ships a
 v2-compatible client; the public package still negotiates v1 against bare
 network names and body-encoded requirements.
 
+## sub-agent budgets
+
+a main agent grants a sub-agent a $5.00 USDC spending cap via ERC-7710.
+the sub-agent burns through it in five $1.00 x402 calls. the sixth call's
+on-chain `DelegationManager.redeemDelegations(...)` reverts at the
+`ERC20TransferAmountEnforcer` — no balance check, no application logic,
+the chain refuses.
+
+```
+r402 sub-agent budget — base mainnet
+
+  main:    0x<...>  (smart account, MetaMask Hybrid)
+  sub:     0x<...>  (EOA, derived from main)
+  cap:     5.00 USDC
+
+  delegation granted (erc20TransferAmount, max 5.00 USDC)
+    → manager:  0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3
+    → caveat:   ERC20TransferAmountEnforcer @ 0xf100b0819427117EcF76Ed94B358B1A5b5C6D2Fc
+    → digest:   0x<...>
+
+  → call 1/5 (paying $1.00 USDC via x402 → 0x132fA38...)
+       redeem: 0x<...>
+       signer: 0x<sub> (match: ok)
+  → call 2/5 ...
+  → call 5/5 ...
+
+  → call 6/5 (attempting beyond cap)
+       redeem: reverted at caveat enforcer (ERC20TransferAmountEnforcer)
+
+  budget exhausted. 5/5 used. ok.
+```
+
+total: ~$5.00 USDC + ~$2-3 base mainnet gas. full impl at
+[`examples/sub-agent-budget.ts`](./examples/sub-agent-budget.ts). main
+agent is a MetaMask Hybrid smart account; sub-agent is an EOA derived
+deterministically from `MAIN_PRIVATE_KEY` so gas is funded once and the
+demo is replayable. `@metamask/smart-accounts-kit` v1.5+,
+`DelegationManager` v1.3.0 on base mainnet.
+
 ## architecture
 
 - seller paywall: `@x402/express` `paymentMiddleware` on `/api/verify/:txHash` and `/api/anchor`, base mainnet USDC
