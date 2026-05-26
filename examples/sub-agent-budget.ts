@@ -38,13 +38,17 @@ import { base } from 'viem/chains';
 import {
   Implementation,
   ScopeType,
+  contracts,
   createDelegation,
-  hashDelegation,
+  createExecution,
+  ExecutionMode,
   toMetaMaskSmartAccount,
 } from '@metamask/smart-accounts-kit';
-import { encodeDelegations } from '@metamask/smart-accounts-kit';
-import { createExecution, ExecutionMode, encodeSingleExecution } from '@metamask/smart-accounts-kit';
-import { contracts } from '@metamask/smart-accounts-kit';
+import {
+  encodeDelegations,
+  encodeSingleExecution,
+  hashDelegation,
+} from '@metamask/smart-accounts-kit/utils';
 const DelegationManagerAbi = contracts.DelegationManager;
 
 const CHAIN_ID = 8453;
