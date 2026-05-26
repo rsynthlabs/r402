@@ -44,7 +44,8 @@ import {
 } from '@metamask/smart-accounts-kit';
 import { encodeDelegations } from '@metamask/smart-accounts-kit';
 import { createExecution, ExecutionMode, encodeSingleExecution } from '@metamask/smart-accounts-kit';
-import { DelegationManager as DelegationManagerAbi, SimpleFactory as SimpleFactoryAbi } from '@metamask/delegation-abis';
+import { contracts } from '@metamask/smart-accounts-kit';
+const DelegationManagerAbi = contracts.DelegationManager;
 
 const CHAIN_ID = 8453;
 const USDC_BASE      = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const;
@@ -212,7 +213,7 @@ async function callWithX402<T>(
 // allowance-exceeded". this matcher is intentionally loose — the enforcer
 // name is the load-bearing token; the suffix has varied across toolkit
 // versions.
-function isCaveatExhaustedRevert(err: unknown): boolean {
+export function isCaveatExhaustedRevert(err: unknown): boolean {
   if (!(err instanceof BaseError)) return false;
   const reverted = err.walk((e) => e instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
   if (!reverted) return false;
@@ -402,7 +403,13 @@ async function main(): Promise<void> {
   process.exit(1);
 }
 
-main().catch((err) => {
-  console.error(C.red('demo failed:'), err instanceof Error ? err.message : err);
-  process.exit(99);
-});
+// guard so the test runner can import deriveSubAgentKey /
+// isCaveatExhaustedRevert without firing the live demo.
+import { fileURLToPath } from 'node:url';
+const isCli = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isCli) {
+  main().catch((err) => {
+    console.error(C.red('demo failed:'), err instanceof Error ? err.message : err);
+    process.exit(99);
+  });
+}
