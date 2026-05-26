@@ -206,18 +206,27 @@ async function callWithX402<T>(
   return (await retry.json()) as T;
 }
 
-// caveat-enforcer revert is wrapped twice (manager → enforcer). viem's
-// .walk() finds the innermost ContractFunctionRevertedError. its data is
-// typically a Solidity string-revert like "ERC20TransferAmountEnforcer:
-// allowance-exceeded". this matcher is intentionally loose — the enforcer
-// name is the load-bearing token; the suffix has varied across toolkit
-// versions.
+// caveat-enforcer revert surfaces via DelegationManager.execute.redeemDelegations,
+// which wraps simulateContract + writeContract. depending on whether the RPC
+// returns decoded Error(string) data or just a message, the revert string lands
+// in different places: inner.reason (decoded path), inner.shortMessage (no-data
+// path), or only the outer wrapper's shortMessage/details/message (when walk()
+// returns no ContractFunctionRevertedError or the inner shape doesn't carry the
+// reason through). collect every plausible field and run the regex against the
+// joined blob — the enforcer name is the load-bearing token; the suffix has
+// varied across toolkit versions.
 export function isCaveatExhaustedRevert(err: unknown): boolean {
   if (!(err instanceof BaseError)) return false;
   const reverted = err.walk((e) => e instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
-  if (!reverted) return false;
-  const reason = reverted.reason ?? reverted.shortMessage ?? '';
-  return /ERC20TransferAmountEnforcer/i.test(reason) || /allowance.*exceeded/i.test(reason);
+  const blob = [
+    reverted?.reason,
+    reverted?.shortMessage,
+    reverted?.details,
+    err.shortMessage,
+    err.details,
+    err.message,
+  ].filter((s): s is string => typeof s === 'string' && s.length > 0).join('\n');
+  return /ERC20TransferAmountEnforcer/i.test(blob) || /allowance.*exceeded/i.test(blob);
 }
 
 async function main(): Promise<void> {

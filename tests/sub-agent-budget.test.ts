@@ -146,8 +146,52 @@ describe('isCaveatExhaustedRevert', () => {
     expect(isCaveatExhaustedRevert('string')).toBe(false);
   });
 
-  it('returns false when the BaseError has no ContractFunctionRevertedError in its cause chain', () => {
+  it('returns false when no field in the error tree carries the enforcer markers', () => {
     const generic = new BaseError('rpc fetch failed');
     expect(isCaveatExhaustedRevert(generic)).toBe(false);
+  });
+
+  // simulate-wrapped path: DelegationManager.execute.redeemDelegations calls
+  // simulateContract under the hood; on a live caveat-enforcer revert against
+  // base mainnet (commits 698af01 + d763ea1 + db7900e), the string landed in
+  // err.message / err.details (visible as "Details: execution reverted: ...")
+  // while walk() either returned null or surfaced a CFRE with no .reason set.
+  // these tests pin every outer-field path so future toolkit shape drift
+  // doesn't silently re-break the budget-exhausted exit.
+  describe('outer-field fallbacks (live simulate-wrapped revert shape)', () => {
+    it('matches when the marker is only in outer.details', () => {
+      const outer = new BaseError('execution reverted', {
+        details: 'execution reverted: ERC20TransferAmountEnforcer:allowance-exceeded',
+      });
+      expect(isCaveatExhaustedRevert(outer)).toBe(true);
+    });
+
+    it('matches when the marker is only in outer.message', () => {
+      // BaseError concatenates shortMessage + metaMessages + details into message;
+      // we synthesize a metaMessage path here so the marker only reaches `message`.
+      const outer = new BaseError('reverted', {
+        metaMessages: ['Error: ERC20TransferAmountEnforcer:allowance-exceeded'],
+      });
+      expect(isCaveatExhaustedRevert(outer)).toBe(true);
+    });
+
+    it('matches when CFRE is present but only its shortMessage carries the marker', () => {
+      const inner = new ContractFunctionRevertedError({
+        abi:          [],
+        data:         '0x',
+        functionName: 'redeemDelegations',
+        message:      'execution reverted: ERC20TransferAmountEnforcer:allowance-exceeded',
+      });
+      (inner as unknown as { reason: undefined }).reason = undefined;
+      const outer = new BaseError('reverted', { cause: inner });
+      expect(isCaveatExhaustedRevert(outer)).toBe(true);
+    });
+
+    it('still returns false for an unrelated ERC20 revert without the marker', () => {
+      const outer = new BaseError('execution reverted', {
+        details: 'execution reverted: ERC20: transfer amount exceeds balance',
+      });
+      expect(isCaveatExhaustedRevert(outer)).toBe(false);
+    });
   });
 });
