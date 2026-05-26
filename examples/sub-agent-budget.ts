@@ -44,12 +44,7 @@ import {
   ExecutionMode,
   toMetaMaskSmartAccount,
 } from '@metamask/smart-accounts-kit';
-import {
-  encodeDelegations,
-  encodeSingleExecution,
-  hashDelegation,
-} from '@metamask/smart-accounts-kit/utils';
-const DelegationManagerAbi = contracts.DelegationManager;
+import { hashDelegation } from '@metamask/smart-accounts-kit/utils';
 
 const CHAIN_ID = 8453;
 const USDC_BASE      = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const;
@@ -320,8 +315,6 @@ async function main(): Promise<void> {
   console.log(`    → digest:   ${digest}`);
   console.log();
 
-  const permissionContext = encodeDelegations([signedDelegation]);
-
   // loop 1..5
   for (let i = 1; i <= 5; i++) {
     console.log(`  ${C.dim('→')} call ${i}/5 ${C.dim(`(paying $1.00 USDC via x402 → ${PAY_TO.slice(0, 8)}...)`)}`);
@@ -335,13 +328,13 @@ async function main(): Promise<void> {
         args:         [subAccount.address, PER_CALL_USDC],
       }),
     });
-    const executionCallData = encodeSingleExecution(execution);
 
-    const redeemHash = await subWallet.writeContract({
-      address:      environment.DelegationManager,
-      abi:          DelegationManagerAbi,
-      functionName: 'redeemDelegations',
-      args:         [[permissionContext], [ExecutionMode.SingleDefault as Hex], [executionCallData]],
+    const redeemHash = await contracts.DelegationManager.execute.redeemDelegations({
+      client:                   subWallet,
+      delegationManagerAddress: environment.DelegationManager,
+      delegations:              [[signedDelegation]],
+      modes:                    [ExecutionMode.SingleDefault],
+      executions:               [[execution]],
     });
     await publicClient.waitForTransactionReceipt({ hash: redeemHash });
     console.log(`       redeem: ${redeemHash}`);
@@ -383,11 +376,12 @@ async function main(): Promise<void> {
     }),
   });
   try {
-    await subWallet.writeContract({
-      address:      environment.DelegationManager,
-      abi:          DelegationManagerAbi,
-      functionName: 'redeemDelegations',
-      args:         [[permissionContext], [ExecutionMode.SingleDefault as Hex], [encodeSingleExecution(overflowExecution)]],
+    await contracts.DelegationManager.execute.redeemDelegations({
+      client:                   subWallet,
+      delegationManagerAddress: environment.DelegationManager,
+      delegations:              [[signedDelegation]],
+      modes:                    [ExecutionMode.SingleDefault],
+      executions:               [[overflowExecution]],
     });
     // if we somehow get here the cap was not enforced
     console.error(C.red(`       redeem: 6th transfer succeeded — cap not enforced. demo failed.`));
