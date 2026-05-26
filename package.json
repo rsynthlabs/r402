@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@metamask/smart-accounts-kit": "^1.5.0",
     "@x402/core": "^2.12.0",
     "@x402/evm": "^2.12.0",
     "@x402/express": "^2.12.0",
