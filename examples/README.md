@@ -154,7 +154,7 @@ r402 sub-agent budget — base mainnet
 
   → call 1/5 (paying $1.00 USDC via x402 → 0x132fA38...)
        redeem: 0x<...>
-       signer: 0xE19b2A...3Dfb (match: ok)
+       verify: 0x156d72... (anchored signer)
   → call 2/5 ...
   → call 5/5 ...
 
@@ -181,7 +181,6 @@ total: **~$5.00 USDC + ~0.0015 ETH** gas, mainnet. main smart-account deploy is 
 |------|----------------------------------------------------------------------------------|
 |  1   | expected — budget exhausted at the caveat enforcer, OR preflight failure (funding/env) |
 |  2   | unexpected — 6th redeem succeeded; cap was not enforced (smoke-test regression)  |
-|  3   | x402 verify signer mismatch (sub-agent address didn't recover)                   |
 |  4   | 6th redeem reverted but not at the expected enforcer (toolkit/contract drift)    |
 | 99   | unexpected error (network, RPC, etc.)                                            |
 

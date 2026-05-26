@@ -355,12 +355,9 @@ async function main(): Promise<void> {
       }
       throw err;
     }
-    const signerOk = verified.signer.toLowerCase() === subAccount.address.toLowerCase();
-    console.log(`       signer: ${verified.signer} (match: ${signerOk ? C.green('ok') : C.red('FAIL')})`);
-    if (!signerOk) {
-      console.error(C.red(`  mismatch — expected signer=${subAccount.address}`));
-      process.exit(3);
-    }
+    // verify.signer = anchored payload author (constant), not x402 payer.
+    // r402 accepting our payment is asserted by callWithX402 not throwing.
+    console.log(`       verify: ${verified.signer.slice(0, 10)}... ${C.dim('(anchored signer)')}`);
   }
   console.log();
 

@@ -133,7 +133,7 @@ r402 sub-agent budget — base mainnet
 
   → call 1/5 (paying $1.00 USDC via x402 → 0x132fA38...)
        redeem: 0x<...>
-       signer: 0x<sub> (match: ok)
+       verify: 0x156d72... (anchored signer)
   → call 2/5 ...
   → call 5/5 ...
 
