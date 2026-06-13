@@ -2,6 +2,10 @@ import express, { type Express, type Request, type Response } from 'express';
 import { paymentMiddleware } from '@x402/express';
 import { x402ResourceServer, HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
+import {
+  bazaarResourceServerExtension,
+  declareDiscoveryExtension,
+} from '@x402/extensions/bazaar';
 import { z } from 'zod';
 import {
   createPublicClient,
@@ -51,6 +55,39 @@ const USDC_EIP712 = { name: 'USD Coin', version: '2' };
 // duplicated from verify.ts (locked); keep in sync if ExecutionLog redeploys.
 const EXECUTION_LOG_ADDRESS = '0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c';
 
+// agentic.market bazaar discovery declaration for the verify routes. the
+// output example is the genesis anchor (scripts/verify-genesis.ts), fetched
+// once from the live ExecutionLog event so example and schema match the
+// real 200 body byte-for-byte. method/routeTemplate/pathParams are filled
+// per-request by bazaarResourceServerExtension.enrichDeclaration.
+const VERIFY_DISCOVERY = declareDiscoveryExtension({
+  pathParamsSchema: {
+    properties: { txHash: { type: 'string', pattern: '^0x[0-9a-fA-F]{64}$' } },
+    required: ['txHash'],
+  },
+  output: {
+    example: {
+      signer:      '0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe',
+      payloadHash: '0xf4956c73088b2e375ae322a452d80fdd52634707288820916eb01445f4a92b12',
+      signature:   '0xd44fd6ccc4468252c4e790549fdf113b89b06afc7d4aeb265f8e5b693fd3b7216680fc03b15194241ee1cbc2f7d7c1037901d9406a9b3c13c70f46b23ed222911c',
+      timestamp:   '1779122603',
+      blockNumber: '46166628',
+      txHash:      '0x713cf782481db82785853a56cb2b52f04fbfcc535d3bf9ffc1636f5c493cd7fb',
+    },
+    schema: {
+      properties: {
+        signer:      { type: 'string' },
+        payloadHash: { type: 'string' },
+        signature:   { type: 'string' },
+        timestamp:   { type: 'string' },
+        blockNumber: { type: 'string' },
+        txHash:      { type: 'string' },
+      },
+      required: ['signer', 'payloadHash', 'signature', 'timestamp', 'blockNumber', 'txHash'],
+    },
+  },
+});
+
 const TxHashSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 
 const AnchorBodySchema = z.object({
@@ -87,10 +124,9 @@ export function createServer(opts: ServerOptions = {}): Express {
   });
 
   const facilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
-  const resourceServer = new x402ResourceServer(facilitator).register(
-    NETWORK_ID,
-    new ExactEvmScheme(),
-  );
+  const resourceServer = new x402ResourceServer(facilitator)
+    .register(NETWORK_ID, new ExactEvmScheme())
+    .registerExtension(bazaarResourceServerExtension);
 
   app.use(
     paymentMiddleware(
@@ -103,7 +139,8 @@ export function createServer(opts: ServerOptions = {}): Express {
             payTo:   PAY_TO,
             extra:   USDC_EIP712,
           },
-          description: 'verify a $R execution proof anchored on Base',
+          description: 'proof-of-execution verdict for $R robot/agent execution anchors on Base',
+          extensions: VERIFY_DISCOVERY,
         },
         // prefix-free public alias of GET /api/verify/:txHash — same paywall,
         // same handler. read-only verify is a safe public surface; /api/anchor
@@ -116,7 +153,8 @@ export function createServer(opts: ServerOptions = {}): Express {
             payTo:   PAY_TO,
             extra:   USDC_EIP712,
           },
-          description: 'verify a $R execution proof anchored on Base',
+          description: 'proof-of-execution verdict for $R robot/agent execution anchors on Base',
+          extensions: VERIFY_DISCOVERY,
         },
         'POST /api/anchor': {
           accepts: {
