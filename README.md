@@ -6,20 +6,20 @@ producer holding any eth.
 
 paid. signed. proven.
 
-- live: [https://r402.rsynth.ai](https://r402.rsynth.ai)
+- live: [https://r402.rsynth.ai](https://r402.rsynth.ai) · canonical: `GET /verify/<txHash>` · $1 USDC via x402
 - repo: [github.com/rsynthlabs/r402](https://github.com/rsynthlabs/r402)
 - latest anchor: [basescan.org/tx/0x0b272a46...](https://basescan.org/tx/0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7) (base block 46381639)
 
-## 30-second demo
+## 30-second quickstart
 
 gate:
 
 ```
-$ curl -i https://r402.rsynth.ai/api/verify/0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7
+$ curl -i https://r402.rsynth.ai/verify/0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7
 HTTP/2 402
 payment-required: eyJ4NDAyVmVyc2lvbiI6Mi...   # base64(json)
 
-{"error":"X-PAYMENT header is required"}
+{}
 ```
 
 decoded `payment-required`:
@@ -27,56 +27,105 @@ decoded `payment-required`:
 ```json
 {
   "x402Version": 2,
+  "error": "Payment required",
+  "resource": {
+    "url": "https://r402.rsynth.ai/verify/0x0b272a46...",
+    "description": "verify a $R execution proof anchored on Base",
+    "mimeType": ""
+  },
   "accepts": [{
     "scheme":  "exact",
     "network": "eip155:8453",
-    "asset":   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     "amount":  "1000000",
+    "asset":   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     "payTo":   "0x132fA3855Dda4b2c085FCf3d79E9c3F15f78F15F",
+    "maxTimeoutSeconds": 300,
     "extra":   { "name": "USD Coin", "version": "2" }
-  }],
-  "resource": { "url": "https://r402.rsynth.ai/api/verify/0x0b272a46..." }
+  }]
 }
 ```
 
-pay (signed EIP-3009 `TransferWithAuthorization` in `payment-signature` header):
+pay (signed EIP-3009 `TransferWithAuthorization` over `accepts[0]`, base64
+x402 envelope in the `payment-signature` header):
 
 ```
-$ curl -H 'payment-signature: <base64 envelope>' \
-       https://r402.rsynth.ai/api/verify/0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7
+$ curl -H 'payment-signature: <base64 x402 envelope>' \
+       https://r402.rsynth.ai/verify/0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7
 HTTP/2 200
 
 {
   "signer":      "0x156d727f372D06132526612b7D34CE1693365bf3",
-  "payloadHash": "0x4d2a1f...",
-  "signature":   "0x...",
-  "timestamp":   "1747250551",
+  "payloadHash": "0x7dcea81eff042563b27f9f6e2347b09b52d976d6da95b25d1d78bc00a5cd8938",
+  "signature":   "0xc25ee1f6...2903d41b",
+  "timestamp":   "1779552625",
   "blockNumber": "46381639",
   "txHash":      "0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7"
 }
 ```
 
-full roundtrip via `examples/buyer.ts` (anchor + verify, ~$2 USDC):
+[`examples/buyer.ts`](./examples/buyer.ts) automates the envelope (see
+[integration](#integration)).
+
+## endpoints
+
+| route | price | what |
+|---|---|---|
+| `GET /verify/:txHash` | $1 USDC | canonical · verify an anchored execution proof |
+| `GET /api/verify/:txHash` | $1 USDC | same handler, original path, kept live |
+| `POST /api/anchor` | $1 USDC | anchor a signed payload to base via the relayer |
+
+read-only verify is the only route aliased to the root — `/api/anchor` is a
+write that burns relayer gas, so it keeps the `/api` prefix.
+
+## architecture
 
 ```
-r402 buyer roundtrip — base mainnet
-
-  buyer:   0x156d727f372D06132526612b7D34CE1693365bf3
-  payload: agent_id=1, episode_id=buyer-roundtrip-1716480000000
-  hash:    0x4d2a1f...
-
-  POST https://r402.rsynth.ai/api/anchor (paying $1.00 USDC via x402)
-    → anchored: 0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7
-    → block:    46381639
-    → basescan: https://basescan.org/tx/0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7
-
-  GET  https://r402.rsynth.ai/api/verify/0x0b272a46...9cae7 (paying $1.00 USDC via x402)
-    → signer: 0x156d727f372D06132526612b7D34CE1693365bf3 (match: ok)
-    → hash:   0x4d2a1f... (match: ok)
-
-  roundtrip complete. total: $2.00 USDC.
-  paid. signed. proven.
+buyer
+  |  GET /verify/<txHash>         first hit: 402 + payment-required envelope
+  v                               buyer signs eip-3009, retries with payment-signature
+x402 paywall                      @x402/express + openx402 facilitator, $1 USDC -> payTo
+  |  paid
+  v
+verify handler                    tx receipt + ExecutionRecorded event + record() calldata
+  |
+  v
+ExecutionLog on base mainnet      recover(payloadHash, signature) == indexed signer -> 200
 ```
+
+- seller paywall: `@x402/express` `paymentMiddleware` on `/api/verify/:txHash` and `/api/anchor`, base mainnet USDC
+- settlement: [OpenX402](https://facilitator.openx402.ai) facilitator — permissionless, no-KYC, mainnet
+- relayer: self-hosted hot wallet via viem `walletClient` — pays gas only, never holds agent keys (`ECDSA.recover` extracts the producer's signer from the signature; `tx.origin` is irrelevant to attribution)
+- on-chain anchor: [`ExecutionLog`](https://basescan.org/address/0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c) at `0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c`
+- cross-language verify primitive: shared canonical encoder in python ([`sdk`](https://github.com/rsynthlabs/sdk)) and typescript ([`src/canonical.ts`](./src/canonical.ts)), byte-for-byte. sign once, verify anywhere.
+
+## response schema
+
+every field of the 200 body:
+
+- `signer` — address recovered from the anchored signature. the producer.
+- `payloadHash` — keccak256 of the canonical payload bytes, as recorded on-chain
+- `signature` — EIP-191 signature, decoded back out of `record()` calldata
+- `timestamp` — uint256 from the `ExecutionRecorded` event
+- `blockNumber` — block of the anchor tx
+- `txHash` — the verified tx, echoed
+
+there is no `verified: true` field — the status code is the verdict. a 200
+means the address recovered from `(payloadHash, signature)` equals the
+event's indexed `signer`; a mismatch returns 422.
+
+## errors
+
+| status | meaning |
+|---|---|
+| 200 | verified · recovered signer == on-chain signer |
+| 402 | no or invalid payment · paywall runs before hash validation |
+| 400 | `bad_tx_hash` · malformed tx hash (post-paywall) |
+| 404 | tx not found or reverted |
+| 422 | no `ExecutionRecorded` event in tx · signer mismatch |
+| 502 | upstream rpc failure |
+
+verify errors are json: `{"error":"<code>","detail":"<why>"}`. the 402 body
+is `{}` — everything lives in the `payment-required` header.
 
 ## organic adoption
 
@@ -98,6 +147,8 @@ receipts:
 three strangers paid $1 USDC each within 48h of public endpoint going live.
 no founder ping, no airdrop, no waitlist. the endpoint speaks, somebody pays.
 
+as of 2026-06-11: 14 anchors total · 3 non-team signers · zero marketing
+
 ## integration
 
 ```
@@ -110,6 +161,36 @@ the full buyer flow lives in [`examples/buyer.ts`](./examples/buyer.ts). x402 v2
 EIP-3009 typed-data signing is hand-rolled there until `x402-fetch` ships a
 v2-compatible client; the public package still negotiates v1 against bare
 network names and body-encoded requirements.
+
+full roundtrip via `examples/buyer.ts` (anchor + verify, ~$2 USDC):
+
+```
+r402 buyer roundtrip — base mainnet
+
+  buyer:   0x156d727f372D06132526612b7D34CE1693365bf3
+  payload: agent_id=1, episode_id=buyer-roundtrip-1716480000000
+  hash:    0x7dcea81e...
+
+  POST https://r402.rsynth.ai/api/anchor (paying $1.00 USDC via x402)
+    → anchored: 0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7
+    → block:    46381639
+    → basescan: https://basescan.org/tx/0x0b272a46e8528bff832488b88a05bd377ecaae682a62291d17cf67d8b159cae7
+
+  GET  https://r402.rsynth.ai/api/verify/0x0b272a46...9cae7 (paying $1.00 USDC via x402)
+    → signer: 0x156d727f372D06132526612b7D34CE1693365bf3 (match: ok)
+    → hash:   0x7dcea81e... (match: ok)
+
+  roundtrip complete. total: $2.00 USDC.
+  paid. signed. proven.
+```
+
+re-verify the genesis anchor against its pinned signer + hash ($1 USDC):
+
+```
+npx tsx --env-file=.env scripts/verify-genesis.ts
+```
+
+exit codes: 0 match · 1 bad env · 2 transport failure · 3 signer or hash mismatch.
 
 ## sub-agent budgets
 
@@ -149,14 +230,6 @@ agent is a MetaMask Hybrid smart account; sub-agent is an EOA derived
 deterministically from `MAIN_PRIVATE_KEY` so gas is funded once and the
 demo is replayable. `@metamask/smart-accounts-kit` v1.5+,
 `DelegationManager` v1.3.0 on base mainnet.
-
-## architecture
-
-- seller paywall: `@x402/express` `paymentMiddleware` on `/api/verify/:txHash` and `/api/anchor`, base mainnet USDC
-- settlement: [OpenX402](https://facilitator.openx402.ai) facilitator — permissionless, no-KYC, mainnet
-- relayer: self-hosted hot wallet via viem `walletClient` — pays gas only, never holds agent keys (`ECDSA.recover` extracts the producer's signer from the signature; `tx.origin` is irrelevant to attribution)
-- on-chain anchor: [`ExecutionLog`](https://basescan.org/address/0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c) at `0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c`
-- cross-language verify primitive: shared canonical encoder in python ([`sdk`](https://github.com/rsynthlabs/sdk)) and typescript ([`src/canonical.ts`](./src/canonical.ts)), byte-for-byte. sign once, verify anywhere.
 
 ## what's verified
 

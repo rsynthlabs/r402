@@ -105,6 +105,19 @@ export function createServer(opts: ServerOptions = {}): Express {
           },
           description: 'verify a $R execution proof anchored on Base',
         },
+        // prefix-free public alias of GET /api/verify/:txHash — same paywall,
+        // same handler. read-only verify is a safe public surface; /api/anchor
+        // (a write that burns relayer gas) is deliberately not aliased to root.
+        'GET /verify/:txHash': {
+          accepts: {
+            scheme:  'exact',
+            price:   PRICE,
+            network: NETWORK_ID,
+            payTo:   PAY_TO,
+            extra:   USDC_EIP712,
+          },
+          description: 'verify a $R execution proof anchored on Base',
+        },
         'POST /api/anchor': {
           accepts: {
             scheme:  'exact',
@@ -121,6 +134,7 @@ export function createServer(opts: ServerOptions = {}): Express {
   );
 
   app.get('/api/verify/:txHash', verifyHandler);
+  app.get('/verify/:txHash', verifyHandler);
   app.post('/api/anchor', (req, res) => anchorHandler(req, res, anchor));
 
   return app;

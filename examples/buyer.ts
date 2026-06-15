@@ -44,7 +44,7 @@ interface AnchorResponse {
   anchorUrl:   string;
 }
 
-interface VerifyResponse {
+export interface VerifyResponse {
   signer:      Hex;
   payloadHash: Hex;
   signature:   Hex;
@@ -172,7 +172,7 @@ interface ExactAuthorization {
   nonce:       Hex;
 }
 
-async function callWithX402<T>(
+export async function callWithX402<T>(
   url: string,
   method: 'GET' | 'POST',
   body: unknown,
@@ -316,7 +316,8 @@ async function main(): Promise<void> {
   console.log();
 }
 
-main().catch((err) => {
+import { fileURLToPath } from 'node:url';
+if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch((err) => {
   console.error(C.red('roundtrip failed:'), err instanceof Error ? err.message : err);
   process.exit(99);
 });
