@@ -44,6 +44,46 @@ const PRICE           = { asset: USDC_BASE, amount: '1000000' }; // $1.00 USDC
 const NETWORK_ID      = 'eip155:8453';
 const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.openx402.ai';
 
+// cold-boot hardening. building the 402 challenge needs the facilitator's
+// supported-kinds (x402ResourceServer.buildPaymentRequirements throws without a
+// kind for x402Version=2), and @x402/express fetches them via getSupported() as
+// a floating promise at construction, awaited on the first request. on a cold
+// lambda a failing or slow GET /supported egress turns the first 402 into a
+// 500/502, and the floating rejection can kill the worker (the exit-128 we hit
+// in prod 2026-06-16). this is a single-(scheme, network) exact-on-Base verifier
+// whose supported set is constant, so pin it: getSupported() returns a fixed
+// value with zero i/o and never rejects, removing both the egress dependency and
+// the unhandled-rejection hazard. verify()/settle() stay inherited and hit the
+// live facilitator, so a stale pin fails loudly at settle, never silently
+// accepting a bad payment. captured 2026-06-19 from GET /supported and reduced
+// to the Base kind; OpenX402 advertises only x402Version 2, and ExactEvmScheme
+// ignores supportedKind.extra (the kind only needs to exist). REFRESH if
+// OpenX402's Base supported set changes.
+export const PINNED_SUPPORTED: Awaited<ReturnType<HTTPFacilitatorClient['getSupported']>> = {
+  kinds: [
+    {
+      x402Version: 2,
+      scheme:      'exact',
+      network:     NETWORK_ID,
+      extra: {
+        name:                'USD Coin',
+        version:             '2',
+        asset:               USDC_BASE,
+        assetTransferMethod: 'eip3009',
+      },
+    },
+  ],
+  extensions: ['discovery'],
+  signers:    { 'eip155:*': ['0x97316FA4730BC7d3B295234F8e4D04a0a4C093e8'] },
+};
+
+class PinnedSupportedFacilitator extends HTTPFacilitatorClient {
+  // override only getSupported — verify()/settle() inherited, hit the live url.
+  async getSupported() {
+    return PINNED_SUPPORTED;
+  }
+}
+
 // USDC EIP-712 domain pin. base mainnet USDC.name() returns "USD Coin"
 // (the sepolia contract returns "USDC" — different contract, different
 // domain). when PRICE is the AssetAmount shape, @x402/express does not
@@ -123,7 +163,7 @@ export function createServer(opts: ServerOptions = {}): Express {
     res.redirect(302, 'https://github.com/rsynthlabs/r402');
   });
 
-  const facilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
+  const facilitator = new PinnedSupportedFacilitator({ url: FACILITATOR_URL });
   const resourceServer = new x402ResourceServer(facilitator)
     .register(NETWORK_ID, new ExactEvmScheme())
     .registerExtension(bazaarResourceServerExtension);
