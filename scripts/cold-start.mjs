@@ -25,6 +25,10 @@ const TX = '0x' + 'a'.repeat(64);
 const ROUTE_TEMPLATE = '/verify/:txHash';
 const GENESIS_SIGNER = '0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe';
 const GENESIS_TXHASH = '0x713cf782481db82785853a56cb2b52f04fbfcc535d3bf9ffc1636f5c493cd7fb';
+const NETWORK_ID   = 'eip155:8453';
+const USDC_BASE    = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const PRICE_AMOUNT = '1000000'; // $1.00 USDC, atomic - must match src/server.ts PRICE
+const PAY_TO       = '0x132fA3855Dda4b2c085FCf3d79E9c3F15f78F15F';
 const TIMEOUT_MS = 20_000;
 
 // minimal facilitator /supported payload: exact on base mainnet, both protocol
@@ -122,6 +126,15 @@ async function child() {
     const header = res.headers.get('payment-required');
     if (!header) throw new Error('missing payment-required header');
     const envelope = JSON.parse(Buffer.from(header, 'base64').toString());
+    if (envelope?.x402Version !== 2) throw new Error(`envelope.x402Version != 2 (${envelope?.x402Version})`);
+    const accepts = Array.isArray(envelope?.accepts) ? envelope.accepts : [];
+    if (accepts.length === 0) throw new Error('envelope.accepts missing/empty - unpayable 402');
+    const req = accepts[0];
+    if (req?.scheme !== 'exact') throw new Error(`accepts[0].scheme != exact (${req?.scheme})`);
+    if (req?.network !== NETWORK_ID) throw new Error(`accepts[0].network != ${NETWORK_ID} (${req?.network})`);
+    if (req?.asset?.toLowerCase() !== USDC_BASE.toLowerCase()) throw new Error(`accepts[0].asset != USDC (${req?.asset})`);
+    if (req?.amount !== PRICE_AMOUNT) throw new Error(`accepts[0].amount != ${PRICE_AMOUNT} (${req?.amount})`);
+    if (req?.payTo?.toLowerCase() !== PAY_TO.toLowerCase()) throw new Error(`accepts[0].payTo != ${PAY_TO} (${req?.payTo})`);
     const bazaar = envelope?.extensions?.bazaar;
     if (!bazaar) throw new Error('envelope.extensions.bazaar missing');
     const input = bazaar.info?.input;

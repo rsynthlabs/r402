@@ -15,6 +15,10 @@ import { createServer, PINNED_SUPPORTED } from '../src/server.js';
 
 const GENESIS_SIGNER = '0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe';
 const GENESIS_TXHASH = '0x713cf782481db82785853a56cb2b52f04fbfcc535d3bf9ffc1636f5c493cd7fb';
+const NETWORK_ID = 'eip155:8453';
+const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const PRICE_AMOUNT = '1000000';
+const PAY_TO = '0x132fA3855Dda4b2c085FCf3d79E9c3F15f78F15F';
 
 // any call to one of these is facilitator egress; the local server request
 // (127.0.0.1) is not.
@@ -51,6 +55,8 @@ describe('pinned facilitator — cold boot does no facilitator egress', () => {
     const header = r.headers.get('payment-required');
     expect(header).toBeTruthy();
     const envelope = JSON.parse(Buffer.from(header!, 'base64').toString()) as {
+      x402Version?: number;
+      accepts?: Array<{ scheme?: string; network?: string; asset?: string; amount?: string; payTo?: string }>;
       extensions?: {
         bazaar?: {
           info?: { input?: Record<string, unknown>; output?: { example?: Record<string, unknown> } };
@@ -58,6 +64,16 @@ describe('pinned facilitator — cold boot does no facilitator egress', () => {
         };
       };
     };
+    expect(envelope.x402Version).toBe(2);
+    const accepts = envelope.accepts ?? [];
+    expect(accepts.length).toBeGreaterThan(0);
+    const req = accepts[0];
+    expect(req?.scheme).toBe('exact');
+    expect(req?.network).toBe(NETWORK_ID);
+    expect(req?.asset?.toLowerCase()).toBe(USDC_BASE.toLowerCase());
+    expect(req?.amount).toBe(PRICE_AMOUNT);
+    expect(req?.payTo?.toLowerCase()).toBe(PAY_TO.toLowerCase());
+
     const bazaar = envelope.extensions?.bazaar;
     expect(bazaar).toBeDefined();
     expect(bazaar?.info?.input?.type).toBe('http');
