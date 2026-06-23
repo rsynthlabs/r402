@@ -55,6 +55,34 @@ describe('server endpoints', () => {
     expect(r.status).toBe(402);
   });
 
+  // x402 v2 carries the PaymentRequired envelope in the base64
+  // `payment-required` header; the 402 body stays `{}`.
+  it('402 envelope carries the bazaar discovery extension', async () => {
+    const txHash = `0x${'a'.repeat(64)}`;
+    const r = await fetch(`${baseUrl}/verify/${txHash}`);
+    expect(r.status).toBe(402);
+    const header = r.headers.get('payment-required');
+    expect(header).toBeTruthy();
+    const envelope = JSON.parse(Buffer.from(header!, 'base64').toString()) as {
+      extensions?: {
+        bazaar?: {
+          info?: { input?: Record<string, unknown>; output?: { example?: Record<string, unknown> } };
+          routeTemplate?: string;
+        };
+      };
+    };
+    const bazaar = envelope.extensions?.bazaar;
+    expect(bazaar).toBeDefined();
+    expect(bazaar?.info?.input?.type).toBe('http');
+    expect(bazaar?.info?.input?.method).toBe('GET');
+    expect(bazaar?.info?.input?.pathParams).toEqual({ txHash });
+    expect(bazaar?.routeTemplate).toBe('/verify/:txHash');
+    expect(bazaar?.info?.output?.example).toMatchObject({
+      signer: '0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe',
+      txHash: '0x713cf782481db82785853a56cb2b52f04fbfcc535d3bf9ffc1636f5c493cd7fb',
+    });
+  });
+
   it('GET /api/verify/<bad-format> without X-PAYMENT → still 402 (paywall before handler)', async () => {
     const r = await fetch(`${baseUrl}/api/verify/not-a-hash`);
     expect(r.status).toBe(402);

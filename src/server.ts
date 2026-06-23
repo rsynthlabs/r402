@@ -2,6 +2,10 @@ import express, { type Express, type Request, type Response } from 'express';
 import { paymentMiddleware } from '@x402/express';
 import { x402ResourceServer, HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
+import {
+  bazaarResourceServerExtension,
+  declareDiscoveryExtension,
+} from '@x402/extensions/bazaar';
 import { z } from 'zod';
 import {
   createPublicClient,
@@ -40,6 +44,46 @@ const PRICE           = { asset: USDC_BASE, amount: '1000000' }; // $1.00 USDC
 const NETWORK_ID      = 'eip155:8453';
 const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.openx402.ai';
 
+// cold-boot hardening. building the 402 challenge needs the facilitator's
+// supported-kinds (x402ResourceServer.buildPaymentRequirements throws without a
+// kind for x402Version=2), and @x402/express fetches them via getSupported() as
+// a floating promise at construction, awaited on the first request. on a cold
+// lambda a failing or slow GET /supported egress turns the first 402 into a
+// 500/502, and the floating rejection can kill the worker (the exit-128 we hit
+// in prod 2026-06-16). this is a single-(scheme, network) exact-on-Base verifier
+// whose supported set is constant, so pin it: getSupported() returns a fixed
+// value with zero i/o and never rejects, removing both the egress dependency and
+// the unhandled-rejection hazard. verify()/settle() stay inherited and hit the
+// live facilitator, so a stale pin fails loudly at settle, never silently
+// accepting a bad payment. captured 2026-06-19 from GET /supported and reduced
+// to the Base kind; OpenX402 advertises only x402Version 2, and ExactEvmScheme
+// ignores supportedKind.extra (the kind only needs to exist). REFRESH if
+// OpenX402's Base supported set changes.
+export const PINNED_SUPPORTED: Awaited<ReturnType<HTTPFacilitatorClient['getSupported']>> = {
+  kinds: [
+    {
+      x402Version: 2,
+      scheme:      'exact',
+      network:     NETWORK_ID,
+      extra: {
+        name:                'USD Coin',
+        version:             '2',
+        asset:               USDC_BASE,
+        assetTransferMethod: 'eip3009',
+      },
+    },
+  ],
+  extensions: ['discovery'],
+  signers:    { 'eip155:*': ['0x97316FA4730BC7d3B295234F8e4D04a0a4C093e8'] },
+};
+
+class PinnedSupportedFacilitator extends HTTPFacilitatorClient {
+  // override only getSupported — verify()/settle() inherited, hit the live url.
+  async getSupported() {
+    return PINNED_SUPPORTED;
+  }
+}
+
 // USDC EIP-712 domain pin. base mainnet USDC.name() returns "USD Coin"
 // (the sepolia contract returns "USDC" — different contract, different
 // domain). when PRICE is the AssetAmount shape, @x402/express does not
@@ -50,6 +94,39 @@ const USDC_EIP712 = { name: 'USD Coin', version: '2' };
 
 // duplicated from verify.ts (locked); keep in sync if ExecutionLog redeploys.
 const EXECUTION_LOG_ADDRESS = '0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c';
+
+// agentic.market bazaar discovery declaration for the verify routes. the
+// output example is the genesis anchor (scripts/verify-genesis.ts), fetched
+// once from the live ExecutionLog event so example and schema match the
+// real 200 body byte-for-byte. method/routeTemplate/pathParams are filled
+// per-request by bazaarResourceServerExtension.enrichDeclaration.
+const VERIFY_DISCOVERY = declareDiscoveryExtension({
+  pathParamsSchema: {
+    properties: { txHash: { type: 'string', pattern: '^0x[0-9a-fA-F]{64}$' } },
+    required: ['txHash'],
+  },
+  output: {
+    example: {
+      signer:      '0xe182BDa14ec3EfBAa72BC0fb6aad3145d9E64bAe',
+      payloadHash: '0xf4956c73088b2e375ae322a452d80fdd52634707288820916eb01445f4a92b12',
+      signature:   '0xd44fd6ccc4468252c4e790549fdf113b89b06afc7d4aeb265f8e5b693fd3b7216680fc03b15194241ee1cbc2f7d7c1037901d9406a9b3c13c70f46b23ed222911c',
+      timestamp:   '1779122603',
+      blockNumber: '46166628',
+      txHash:      '0x713cf782481db82785853a56cb2b52f04fbfcc535d3bf9ffc1636f5c493cd7fb',
+    },
+    schema: {
+      properties: {
+        signer:      { type: 'string' },
+        payloadHash: { type: 'string' },
+        signature:   { type: 'string' },
+        timestamp:   { type: 'string' },
+        blockNumber: { type: 'string' },
+        txHash:      { type: 'string' },
+      },
+      required: ['signer', 'payloadHash', 'signature', 'timestamp', 'blockNumber', 'txHash'],
+    },
+  },
+});
 
 const TxHashSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 
@@ -86,11 +163,10 @@ export function createServer(opts: ServerOptions = {}): Express {
     res.redirect(302, 'https://github.com/rsynthlabs/r402');
   });
 
-  const facilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
-  const resourceServer = new x402ResourceServer(facilitator).register(
-    NETWORK_ID,
-    new ExactEvmScheme(),
-  );
+  const facilitator = new PinnedSupportedFacilitator({ url: FACILITATOR_URL });
+  const resourceServer = new x402ResourceServer(facilitator)
+    .register(NETWORK_ID, new ExactEvmScheme())
+    .registerExtension(bazaarResourceServerExtension);
 
   app.use(
     paymentMiddleware(
@@ -103,7 +179,8 @@ export function createServer(opts: ServerOptions = {}): Express {
             payTo:   PAY_TO,
             extra:   USDC_EIP712,
           },
-          description: 'verify a $R execution proof anchored on Base',
+          description: 'proof-of-execution verdict for $R robot/agent execution anchors on Base',
+          extensions: VERIFY_DISCOVERY,
         },
         // prefix-free public alias of GET /api/verify/:txHash — same paywall,
         // same handler. read-only verify is a safe public surface; /api/anchor
@@ -116,7 +193,8 @@ export function createServer(opts: ServerOptions = {}): Express {
             payTo:   PAY_TO,
             extra:   USDC_EIP712,
           },
-          description: 'verify a $R execution proof anchored on Base',
+          description: 'proof-of-execution verdict for $R robot/agent execution anchors on Base',
+          extensions: VERIFY_DISCOVERY,
         },
         'POST /api/anchor': {
           accepts: {
