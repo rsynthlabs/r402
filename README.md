@@ -127,15 +127,16 @@ event's indexed `signer`; a mismatch returns 422.
 verify errors are json: `{"error":"<code>","detail":"<why>"}`. the 402 body
 is `{}` — everything lives in the `payment-required` header.
 
-## organic adoption
+## adoption
 
-48h since public ship, zero marketing:
+nine days since deploy, zero marketing:
 
 | metric | count |
 |---|---|
 | anchors on base mainnet | 8 |
 | external signers | 3 |
 | paid usdc revenue | ~$9 |
+| first external | day 5 |
 | signups, invites, drops | 0 |
 
 receipts:
@@ -144,7 +145,7 @@ receipts:
 - relayer: [`0x0d9242c7...4fd`](https://basescan.org/address/0x0d9242c7Da4a47E815023905e2a82B354fbCE4fd)
 - ExecutionLog: [`0xd5A9DAF8...1a1c`](https://basescan.org/address/0xd5A9DAF8F2134b61b73cEfaF5c9094EA162f1a1c)
 
-three strangers paid $1 USDC each within 48h of public endpoint going live.
+three strangers paid $1 USDC each in the nine days since public ship.
 no founder ping, no airdrop, no waitlist. the endpoint speaks, somebody pays.
 
 as of 2026-06-11: 14 anchors total · 3 non-team signers · zero marketing
